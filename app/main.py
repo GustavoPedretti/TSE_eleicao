@@ -224,6 +224,25 @@ async def api_status():
     }
 
 
+@app.get("/api")
+async def api_info():
+    return {
+        "status": "online",
+        "docs": "/docs",
+        "endpoints": [
+            "/api/dashboard",
+            "/api/poll",
+            "/api/status",
+            "/api/presidente",
+            "/api/mapa/ufs",
+            "/api/mapa/municipios-brasil",
+        ],
+    }
+
+
+@app.get("/api/index")
+@app.get("/api/index.py")
+@app.get("/index.html")
 @app.get("/")
 async def home():
     index = STATIC_DIR / "index.html"
