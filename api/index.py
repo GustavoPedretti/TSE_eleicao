@@ -1,12 +1,20 @@
 """
 Entry point Vercel (serverless).
 
-Todas as rotas do FastAPI passam por aqui via Mangum.
+A Vercel moderna detecta a instância ASGI FastAPI diretamente via 'app'.
 """
 
-from mangum import Mangum
+import sys
+from pathlib import Path
+
+# Garante que a raiz do projeto esteja no sys.path na Vercel
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.main import app
 
-# lifespan="auto" tenta rodar startup; na Vercel o Cron não depende do loop local
-handler = Mangum(app, lifespan="auto")
+# Exporta app diretamente (suporte nativo ASGI da Vercel)
+# Mantém handler para compatibilidade se algum adaptador buscar por handler
+handler = app
+

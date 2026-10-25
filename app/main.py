@@ -80,24 +80,27 @@ def _bloco_turno(eleicao: str, label: str) -> dict[str, Any]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db.init_db()
-    # Esquenta cache do 2º turno se já houver dado
-    br = db.ultimo_resumo(ELEICAO_2T, "br")
-    if br:
-        cache.set_br(
-            eleicao=ELEICAO_2T,
-            idg=br.get("idg"),
-            data=br,
-            atualizado_em=str(br.get("baixado_em", "")),
-            mudou=False,
-            contar_poll=False,
-        )
-    ufs = db.ultimos_resumos_ufs(ELEICAO_2T)
-    if ufs:
-        cache.set_ufs_bulk(ufs)
+    try:
+        db.init_db()
+        # Esquenta cache do 2º turno se já houver dado
+        br = db.ultimo_resumo(ELEICAO_2T, "br")
+        if br:
+            cache.set_br(
+                eleicao=ELEICAO_2T,
+                idg=br.get("idg"),
+                data=br,
+                atualizado_em=str(br.get("baixado_em", "")),
+                mudou=False,
+                contar_poll=False,
+            )
+        ufs = db.ultimos_resumos_ufs(ELEICAO_2T)
+        if ufs:
+            cache.set_ufs_bulk(ufs)
+    except Exception as err:
+        logging.error("Aviso no startup ao inicializar banco ou esquentar cache: %s", err)
 
     task = None
-    if RUN_LOCAL_POLLER:
+    if RUN_LOCAL_POLLER and not IS_VERCEL:
         task = asyncio.create_task(loop_poller(ELEICAO_ATIVA, POLL_INTERVAL_SEGUNDOS))
     try:
         yield
