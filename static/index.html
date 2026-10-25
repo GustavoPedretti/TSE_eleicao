@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TSE 2026 — Presidente</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --text: #e7ecf1;
+      --muted: #8b9aab;
+      --red: #e11d48;
+      --blue: #2563eb;
+      --gray: #6b7280;
+      --line: #2a3542;
+      --hl: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    header {
+      padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--line);
+      display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; justify-content: space-between;
+    }
+    h1 { font-size: 1.1rem; margin: 0; }
+    .meta { color: var(--muted); font-size: 0.85rem; }
+    .tabs { display: flex; gap: 0.35rem; }
+    .tab {
+      background: #243044; color: var(--text); border: 1px solid var(--line);
+      border-radius: 6px; padding: 0.4rem 0.9rem; cursor: pointer; font-size: 0.85rem;
+    }
+    .tab.active { background: #1d4ed8; border-color: #3b82f6; }
+    .view-toggle { display: flex; gap: 0.25rem; }
+    .view-toggle .ghost.active {
+      background: #334155; border-color: #94a3b8; color: #fff;
+    }
+    button.ghost {
+      background: #243044; color: var(--text); border: 1px solid var(--line);
+      border-radius: 6px; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.85rem;
+    }
+    button.ghost:disabled { opacity: 0.45; cursor: default; }
+    .layout {
+      display: grid;
+      grid-template-columns: 1.3fr 0.7fr;
+      height: calc(100vh - 56px);
+      min-height: 520px;
+    }
+    @media (max-width: 960px) {
+      .layout { grid-template-columns: 1fr; height: auto; }
+      #map { height: 50vh; min-height: 340px; }
+      aside { border-left: none; border-top: 1px solid var(--line); }
+    }
+    .map-wrap { position: relative; min-height: 0; height: 100%; }
+    #map { width: 100%; height: 100%; min-height: 460px; background: #0b1220; }
+    #map-hint {
+      position: absolute; z-index: 500; left: 10px; bottom: 10px;
+      background: rgba(15,20,25,.88); color: var(--muted); font-size: .72rem;
+      padding: .35rem .6rem; border-radius: 6px; border: 1px solid var(--line); pointer-events: none;
+    }
+    .scale {
+      position: absolute; z-index: 500; right: 10px; bottom: 10px;
+      background: rgba(15,20,25,.9); border: 1px solid var(--line); border-radius: 6px;
+      padding: .45rem .6rem; font-size: .7rem; color: var(--muted); width: 160px;
+    }
+    .scale-bar {
+      height: 10px; border-radius: 3px; margin: .35rem 0;
+      background: linear-gradient(90deg, #e11d48, #9ca3af 50%, #2563eb);
+    }
+    .scale-row { display: flex; justify-content: space-between; }
+    aside {
+      padding: 1rem 1.15rem; border-left: 1px solid var(--line);
+      background: var(--panel); overflow: auto;
+    }
+    .box {
+      background: #12181f; border: 1px solid var(--line); border-radius: 8px;
+      padding: .7rem .9rem; margin-bottom: .9rem; font-size: .82rem; color: var(--muted);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    th, td { text-align: left; padding: .4rem .3rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; }
+    .bar { height: 7px; background: #243040; border-radius: 4px; overflow: hidden; margin-top: .3rem; }
+    .bar > span { display: block; height: 100%; }
+    .erro { color: #f87171; }
+    h2 { font-size: 1rem; margin: 0 0 .6rem; }
+    #comparativo { margin-top: 1rem; }
+    #comparativo table { font-size: .78rem; }
+    .delta-up { color: #34d399; }
+    .delta-down { color: #f87171; }
+    .delta-zero { color: var(--muted); }
+    /* Leaflet coloca :focus no path SVG → retângulo azul/branco feio no bbox do estado */
+    .leaflet-container path:focus,
+    .leaflet-container .leaflet-interactive:focus {
+      outline: none !important;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Presidente 2026</h1>
+      <div class="meta" id="header-meta">carregando banco…</div>
+    </div>
+    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+      <div class="tabs">
+        <button type="button" class="tab active" data-tab="t2">2º turno</button>
+        <button type="button" class="tab" data-tab="cmp">Comparativo 1º × 2º</button>
+      </div>
+      <div class="view-toggle" title="Como pintar o mapa">
+        <button type="button" class="ghost active" id="btn-view-uf" data-view="uf">Por estado</button>
+        <button type="button" class="ghost" id="btn-view-mun" data-view="mun">Por cidade</button>
+      </div>
+      <button type="button" class="ghost" id="btn-brasil" disabled>← Brasil</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div class="map-wrap">
+      <div id="map"></div>
+      <div id="map-hint">Mapa-múndi · cinza = sem votos · vermelho 13 ↔ azul 22</div>
+      <div class="scale">
+        <div class="scale-row"><span>13</span><span>empate</span><span>22</span></div>
+        <div class="scale-bar"></div>
+        <div>cinza = sem voto apurado</div>
+      </div>
+    </div>
+    <aside>
+      <div class="box" id="status">—</div>
+      <div id="painel-nacional">
+        <h2 id="painel-titulo">Brasil — 2º turno</h2>
+        <table>
+          <thead><tr><th>#</th><th>Nome</th><th>Votos</th><th>%</th></tr></thead>
+          <tbody id="tbody-br"></tbody>
+        </table>
+      </div>
+      <div id="uf-detail" style="display:none;margin-top:1rem">
+        <h2 id="uf-title">UF</h2>
+        <div class="meta" id="uf-meta"></div>
+        <table>
+          <thead><tr><th>#</th><th>Nome</th><th>%</th></tr></thead>
+          <tbody id="tbody-uf"></tbody>
+        </table>
+        <div class="meta" id="mun-progress" style="margin-top:.6rem"></div>
+      </div>
+      <div id="comparativo" style="display:none">
+        <h2>UFs — 1º vs 2º turno</h2>
+        <div class="meta" style="margin-bottom:.5rem">Δ = pp do líder no 2º menos pp no 1º (mesmo número)</div>
+        <table>
+          <thead>
+            <tr>
+              <th>UF</th>
+              <th>1º (13%)</th>
+              <th>1º (22%)</th>
+              <th>2º (13%)</th>
+              <th>2º (22%)</th>
+              <th>Δ 13</th>
+              <th>Δ 22</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-cmp"></tbody>
+        </table>
+      </div>
+      <p class="erro" id="erro"></p>
+    </aside>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const GEO_UF = "/static/geo/br-ufs.geojson";
+    const COR_13 = [225, 29, 72];   // #e11d48
+    const COR_22 = [37, 99, 235];   // #2563eb
+    const COR_GRAY = "#6b7280";
+
+    let dash = null;           // payload /api/dashboard (uma vez)
+    let aba = "t2";            // t2 | cmp
+    let vista = "uf";          // uf = consolidado por estado | mun = cor por cidade
+    let map, ufLayer, munLayer, munBrasilLayer, highlightLayer;
+    let ufsBySigla = {};
+    let munByCdi = {};
+    let ufSelecionada = null;
+    let munBrasilCache = null; // geometria+votos já carregados uma vez
+    let munBrasilLoading = null;
+
+    function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
+
+    function scoreDe(dado) {
+      if (!dado) return null;
+      if (dado.score_disputa != null) return dado.score_disputa;
+      const v13 = Number(dado.votos_13 ?? dado.cand_13?.votos ?? 0);
+      const v22 = Number(dado.votos_22 ?? dado.cand_22?.votos ?? 0);
+      if (v13 + v22 <= 0) {
+        // fallback candidatos
+        const c13 = (dado.candidatos || []).find((c) => String(c.numero) === "13");
+        const c22 = (dado.candidatos || []).find((c) => String(c.numero) === "22");
+        const a = Number(c13?.votos || 0), b = Number(c22?.votos || 0);
+        if (a + b <= 0) return null;
+        return (b - a) / (a + b);
+      }
+      return (v22 - v13) / (v13 + v22);
+    }
+
+    function temVotos(dado) {
+      if (!dado) return false;
+      if (dado.tem_votos === true) return true;
+      if (dado.tem_votos === false) return false;
+      return scoreDe(dado) != null;
+    }
+
+    /** score -1..+1 → vermelho..azul; null → cinza */
+    function corDisputa(dado) {
+      const s = scoreDe(dado);
+      if (s == null || !temVotos(dado)) return COR_GRAY;
+      const t = (s + 1) / 2; // 0=13, 1=22
+      const r = Math.round(COR_13[0] + (COR_22[0] - COR_13[0]) * t);
+      const g = Math.round(COR_13[1] + (COR_22[1] - COR_13[1]) * t);
+      const b = Math.round(COR_13[2] + (COR_22[2] - COR_13[2]) * t);
+      return `rgb(${r},${g},${b})`;
+    }
+
+    function pctCand(dado, num) {
+      const key = num === "13" ? "cand_13" : "cand_22";
+      const c = dado?.[key] || (dado?.candidatos || []).find((x) => String(x.numero) === num);
+      return c?.percentual_num ?? null;
+    }
+
+    function siglaFeature(f) {
+      return String(f.properties.sigla || f.properties.SIGLA || "").toLowerCase();
+    }
+    function nomeFeature(f) {
+      return f.properties.nome || f.properties.name || siglaFeature(f).toUpperCase();
+    }
+
+    function renderCand(tbodyId, candidatos, comVotos) {
+      const tbody = document.getElementById(tbodyId);
+      tbody.innerHTML = "";
+      for (const c of candidatos || []) {
+        const tr = document.createElement("tr");
+        const cor = String(c.numero) === "13" ? "#e11d48" : String(c.numero) === "22" ? "#2563eb" : "#94a3b8";
+        tr.innerHTML = `
+          <td>${c.numero}</td>
+          <td>${c.nome}<div class="bar"><span style="width:${c.percentual_num || 0}%;background:${cor}"></span></div></td>
+          ${comVotos ? `<td>${c.votos != null ? Number(c.votos).toLocaleString("pt-BR") : "—"}</td>` : ""}
+          <td>${c.percentual}%</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+
+    function dadosMapaAtivos() {
+      // Aba 2º: só 2T. Comparativo: mapa ainda mostra 2T (disputa atual); tabela compara.
+      return dash?.turno_2 || null;
+    }
+
+    function estiloUf(feature) {
+      const uf = siglaFeature(feature);
+      const dado = ufsBySigla[uf];
+      const sel = ufSelecionada === uf;
+      const dim = ufSelecionada && !sel;
+
+      // Vista por cidade: só contorno do estado (cor vem dos municípios)
+      if (vista === "mun" && !ufSelecionada) {
+        return {
+          fillColor: "#000",
+          fillOpacity: 0,
+          weight: 1.4,
+          color: "#e2e8f0",
+          opacity: 0.85,
+        };
+      }
+
+      return {
+        fillColor: corDisputa(dado),
+        weight: sel ? 3 : 1,
+        color: sel ? "#fbbf24" : "#0b1220",
+        fillOpacity: dim ? 0.12 : (sel ? 0.22 : 0.78),
+        opacity: dim ? 0.35 : 1,
+      };
+    }
+
+    function estiloMun(feature) {
+      const cdi = String(feature.properties.id || "");
+      const dado = munByCdi[cdi];
+      const nacional = vista === "mun" && !ufSelecionada;
+      return {
+        fillColor: corDisputa(dado),
+        weight: nacional ? 0.25 : 0.55,
+        color: nacional ? "#1e293b" : "#0f172a",
+        fillOpacity: temVotos(dado) ? (nacional ? 0.88 : 0.8) : (nacional ? 0.45 : 0.35),
+      };
+    }
+
+    function bindUf(feature, layer) {
+      const uf = siglaFeature(feature);
+      const nome = nomeFeature(feature);
+      layer.on("click", () => abrirUf(uf, nome, layer));
+      layer.on("mouseover", () => {
+        const d = ufsBySigla[uf];
+        const p13 = pctCand(d, "13");
+        const p22 = pctCand(d, "22");
+        layer.bindTooltip(
+          temVotos(d)
+            ? `<strong>${nome}</strong><br>13: ${p13?.toFixed?.(1) ?? d?.cand_13?.percentual ?? "—"}% · 22: ${p22?.toFixed?.(1) ?? d?.cand_22?.percentual ?? "—"}%`
+            : `<strong>${nome}</strong><br>sem votos apurados`,
+          { sticky: true }
+        ).openTooltip();
+      });
+    }
+
+    function setUfClicksEnabled(enabled) {
+      // Camada de UF por cima engolia o clique das cidades
+      if (!ufLayer) return;
+      ufLayer.eachLayer((layer) => {
+        const el = layer.getElement?.() || layer._path;
+        if (el) el.style.pointerEvents = enabled ? "auto" : "none";
+      });
+    }
+
+    function bindMun(feature, layer) {
+      const cdi = String(feature.properties.id || "");
+      const nome = feature.properties.name || cdi;
+      layer.on({
+        mouseover: (e) => {
+          e.target.setStyle({ weight: 2, color: "#fbbf24" });
+          const d = munByCdi[cdi];
+          layer.bindTooltip(
+            temVotos(d)
+              ? `<strong>${nome}</strong><br>13: ${d.cand_13?.percentual ?? "—"}% · 22: ${d.cand_22?.percentual ?? "—"}%`
+              : `<strong>${nome}</strong><br>sem votos no banco ainda`,
+            { sticky: true }
+          ).openTooltip();
+        },
+        mouseout: (e) => {
+          const layerAlvo = munBrasilLayer || munLayer;
+          if (layerAlvo) layerAlvo.resetStyle(e.target);
+        },
+        click: (e) => {
+          L.DomEvent.stopPropagation(e);
+          if (e.originalEvent) L.DomEvent.stop(e.originalEvent);
+          const path = e.target?.getElement?.() || e.target?._path;
+          if (path?.blur) path.blur();
+          if (document.activeElement?.blur) document.activeElement.blur();
+          const d = munByCdi[cdi];
+          document.getElementById("uf-detail").style.display = "block";
+          document.getElementById("uf-title").textContent = nome;
+          if (temVotos(d) && d.candidatos?.length) {
+            document.getElementById("uf-meta").textContent =
+              `13 ${d.cand_13?.percentual ?? "—"}% · 22 ${d.cand_22?.percentual ?? "—"}%`;
+            renderCand("tbody-uf", d.candidatos, false);
+          } else {
+            document.getElementById("uf-meta").textContent =
+              "Cidade sem votos no nosso banco (aguarde o poller) ou ainda 0 apurado";
+            renderCand("tbody-uf", d?.candidatos || [], false);
+          }
+        },
+      });
+    }
+
+    function boundsUfSelecionada() {
+      if (!ufSelecionada || !ufLayer) return null;
+      let bounds = null;
+      ufLayer.eachLayer((layer) => {
+        if (siglaFeature(layer.feature) === ufSelecionada) {
+          bounds = layer.getBounds();
+        }
+      });
+      return bounds;
+    }
+
+    function onMapClick(e) {
+      if (!ufSelecionada) return;
+      const bounds = boundsUfSelecionada();
+      // Clique fora do estado (outro estado, oceano, país vizinho) → volta ao Brasil
+      if (!bounds || !bounds.contains(e.latlng)) {
+        voltarBrasil();
+      }
+    }
+
+    function pintarUfs() {
+      if (ufLayer) ufLayer.setStyle(estiloUf);
+    }
+
+    function montarUfsBySigla() {
+      const bloco = dadosMapaAtivos();
+      ufsBySigla = {};
+      for (const u of bloco?.ufs || []) ufsBySigla[u.uf] = u;
+      pintarUfs();
+    }
+
+    function renderBrasil() {
+      const bloco = aba === "cmp" ? dash?.turno_2 : dash?.turno_2;
+      const br = bloco?.brasil;
+      document.getElementById("painel-titulo").textContent =
+        aba === "cmp" ? "Brasil — 2º turno (mapa)" : "Brasil — 2º turno";
+      renderCand("tbody-br", br?.candidatos || [], true);
+      document.getElementById("header-meta").textContent = br
+        ? `2º: seções ${br.secoes_totalizadas_pct}% · TSE ${br.gerado_em_tse}` +
+          (dash?.turno_1?.brasil ? ` · 1º no banco (seções ${dash.turno_1.brasil.secoes_totalizadas_pct}%)` : "")
+        : "aguardando dados do 2º turno";
+    }
+
+    function renderComparativo() {
+      const box = document.getElementById("comparativo");
+      const show = aba === "cmp";
+      box.style.display = show ? "block" : "none";
+      if (!show || !dash) return;
+
+      const map1 = Object.fromEntries((dash.turno_1?.ufs || []).map((u) => [u.uf, u]));
+      const map2 = Object.fromEntries((dash.turno_2?.ufs || []).map((u) => [u.uf, u]));
+      const ufs = [...new Set([...Object.keys(map1), ...Object.keys(map2)])].sort();
+      const tbody = document.getElementById("tbody-cmp");
+      tbody.innerHTML = "";
+
+      function fmt(n) {
+        return n == null || Number.isNaN(n) ? "—" : n.toFixed(1);
+      }
+      function delta(a, b) {
+        if (a == null || b == null) return { text: "—", cls: "delta-zero" };
+        const d = b - a;
+        const cls = Math.abs(d) < 0.05 ? "delta-zero" : d > 0 ? "delta-up" : "delta-down";
+        const sign = d > 0 ? "+" : "";
+        return { text: `${sign}${d.toFixed(1)}`, cls };
+      }
+
+      for (const uf of ufs) {
+        if (uf === "zz") continue;
+        const a = map1[uf], b = map2[uf];
+        const p13_1 = pctCand(a, "13"), p22_1 = pctCand(a, "22");
+        const p13_2 = pctCand(b, "13"), p22_2 = pctCand(b, "22");
+        const d13 = delta(p13_1, p13_2);
+        const d22 = delta(p22_1, p22_2);
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${(b?.nome || a?.nome || uf).toString().slice(0, 18)}</td>
+          <td>${fmt(p13_1)}</td><td>${fmt(p22_1)}</td>
+          <td>${fmt(p13_2)}</td><td>${fmt(p22_2)}</td>
+          <td class="${d13.cls}">${d13.text}</td>
+          <td class="${d22.cls}">${d22.text}</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function abrirUf(uf, nome, layer) {
+      if (uf === "zz") return;
+      // Tira o focus ring (quadrado) do path SVG após o clique
+      const el = layer?.getElement?.() || layer?._path;
+      if (el && el.blur) el.blur();
+      if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur();
+      }
+      ufSelecionada = uf;
+      document.getElementById("btn-brasil").disabled = false;
+      const dado = ufsBySigla[uf];
+      document.getElementById("uf-detail").style.display = "block";
+      document.getElementById("uf-title").textContent = `${nome} (${uf.toUpperCase()})`;
+      document.getElementById("uf-meta").textContent = temVotos(dado)
+        ? `Seções ${dado.secoes_pct || "—"}% · 13 ${dado.cand_13?.percentual ?? "—"}% · 22 ${dado.cand_22?.percentual ?? "—"}%`
+        : "sem votos apurados nesta UF";
+      renderCand("tbody-uf", dado?.candidatos || [], false);
+      pintarUfs();
+      if (layer) map.fitBounds(layer.getBounds(), { padding: [28, 28], maxZoom: 8 });
+
+      if (highlightLayer) map.removeLayer(highlightLayer);
+      if (layer) {
+        highlightLayer = L.geoJSON(layer.feature, {
+          style: { fillOpacity: 0, weight: 3.5, color: "#fbbf24" },
+          interactive: false,
+        }).addTo(map);
+      }
+
+      await carregarMunicipios(uf);
+    }
+
+    async function carregarMunicipios(uf) {
+      if (munLayer) { map.removeLayer(munLayer); munLayer = null; }
+      // No zoom da UF, esconde a camada nacional (se existir)
+      if (munBrasilLayer) map.removeLayer(munBrasilLayer);
+      munByCdi = {};
+      document.getElementById("mun-progress").textContent = "Carregando cidades do banco…";
+      try {
+        const turno = 2; // mapa municipal acompanha o 2º (ao vivo)
+        const data = await fetch(`/api/mapa/${uf}/municipios?turno=${turno}`).then((r) => r.json());
+        if (!data.geojson_url) throw new Error("Sem geojson");
+        const geo = await fetch(data.geojson_url).then((r) => r.json());
+        for (const m of data.municipios || []) {
+          if (m.cdi) munByCdi[m.cdi] = m;
+        }
+        munLayer = L.geoJSON(geo, {
+          pane: "munPane",
+          style: estiloMun,
+          onEachFeature: bindMun,
+          bubblingMouseEvents: false,
+        }).addTo(map);
+        munLayer.bringToFront();
+        setUfClicksEnabled(false);
+        if (highlightLayer) {
+          highlightLayer.eachLayer((l) => {
+            const el = l.getElement?.() || l._path;
+            if (el) el.style.pointerEvents = "none";
+          });
+          highlightLayer.bringToFront();
+        }
+        document.getElementById("mun-progress").textContent =
+          `Cidades: ${data.com_dado}/${data.total} com voto no banco · clique numa cidade`;
+        document.getElementById("map-hint").textContent =
+          `${uf.toUpperCase()} · clique nas cidades · ← Brasil para voltar`;
+      } catch (e) {
+        document.getElementById("mun-progress").textContent = "Erro: " + e.message;
+        setUfClicksEnabled(true);
+      }
+    }
+
+    function voltarBrasil() {
+      ufSelecionada = null;
+      document.getElementById("btn-brasil").disabled = true;
+      document.getElementById("uf-detail").style.display = "none";
+      if (munLayer) { map.removeLayer(munLayer); munLayer = null; }
+      if (highlightLayer) { map.removeLayer(highlightLayer); highlightLayer = null; }
+      munByCdi = {};
+      // Reanexa camada nacional se a vista for por cidade
+      if (vista === "mun" && munBrasilLayer && !map.hasLayer(munBrasilLayer)) {
+        munBrasilLayer.addTo(map);
+        if (munBrasilCache) munByCdi = { ...munBrasilCache.votes };
+      }
+      setUfClicksEnabled(true);
+      aplicarVista();
+      if (ufLayer) map.fitBounds(ufLayer.getBounds(), { padding: [16, 16] });
+    }
+
+    function limparCamadaMunBrasil() {
+      if (munBrasilLayer) {
+        map.removeLayer(munBrasilLayer);
+        munBrasilLayer = null;
+      }
+    }
+
+    async function garantirMunBrasil() {
+      if (munBrasilCache) return munBrasilCache;
+      if (munBrasilLoading) return munBrasilLoading;
+      document.getElementById("map-hint").textContent = "Carregando cidades do Brasil…";
+      document.getElementById("status").textContent = "Baixando malha municipal + votos do banco…";
+      munBrasilLoading = (async () => {
+        const resp = await fetch("/api/mapa/municipios-brasil?turno=2");
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        const votes = {};
+        const geos = [];
+        const entries = Object.entries(data.ufs || {});
+        // Geometrias em paralelo (CDN); votos já vieram do nosso banco
+        await Promise.all(entries.map(async ([uf, bloco]) => {
+          for (const m of bloco.municipios || []) {
+            if (m.cdi) votes[m.cdi] = m;
+          }
+          if (!bloco.geojson_url) return;
+          try {
+            const geo = await fetch(bloco.geojson_url).then((r) => r.json());
+            geos.push(geo);
+          } catch (_) { /* ignora UF sem malha */ }
+        }));
+        const merged = {
+          type: "FeatureCollection",
+          features: geos.flatMap((g) => g.features || []),
+        };
+        munBrasilCache = { votes, geo: merged, meta: data };
+        munBrasilLoading = null;
+        return munBrasilCache;
+      })();
+      try {
+        return await munBrasilLoading;
+      } catch (e) {
+        munBrasilLoading = null;
+        throw e;
+      }
+    }
+
+    async function mostrarVistaCidades() {
+      if (munLayer) { map.removeLayer(munLayer); munLayer = null; }
+      const pack = await garantirMunBrasil();
+      munByCdi = { ...pack.votes };
+      if (!munBrasilLayer) {
+        munBrasilLayer = L.geoJSON(pack.geo, {
+          pane: "munPane",
+          style: estiloMun,
+          onEachFeature: bindMun,
+          bubblingMouseEvents: false,
+        });
+      } else {
+        munBrasilLayer.setStyle(estiloMun);
+      }
+      if (!map.hasLayer(munBrasilLayer)) munBrasilLayer.addTo(map);
+      setUfClicksEnabled(true); // ainda dá pra clicar no estado (contorno) e zoomar
+      pintarUfs();
+      if (ufLayer) ufLayer.bringToFront(); // linhas do estado por cima do colorido
+      document.getElementById("map-hint").textContent =
+        "Por cidade · só contorno do estado · cores = municípios · 13↔22";
+      document.getElementById("status").textContent =
+        `Vista cidades · ${pack.meta.com_dado}/${pack.meta.total} com voto no banco · fonte=${pack.meta.fonte}`;
+    }
+
+    function mostrarVistaEstados() {
+      limparCamadaMunBrasil();
+      if (!ufSelecionada) {
+        munByCdi = {};
+        setUfClicksEnabled(true);
+      }
+      pintarUfs();
+      document.getElementById("map-hint").textContent =
+        "Por estado · cor = consolidado da UF · cinza sem votos · 13↔22";
+    }
+
+    async function aplicarVista() {
+      document.getElementById("btn-view-uf").classList.toggle("active", vista === "uf");
+      document.getElementById("btn-view-mun").classList.toggle("active", vista === "mun");
+      try {
+        if (vista === "mun" && !ufSelecionada) {
+          await mostrarVistaCidades();
+        } else if (vista === "uf" && !ufSelecionada) {
+          mostrarVistaEstados();
+        } else {
+          // zoom numa UF: mantém comportamento atual (cidades da UF)
+          pintarUfs();
+        }
+      } catch (e) {
+        document.getElementById("erro").textContent = "Erro na vista: " + e.message;
+      }
+    }
+
+    function trocarVista(nova) {
+      if (vista === nova) return;
+      vista = nova;
+      // Saindo do zoom de UF ao trocar vista nacional
+      if (ufSelecionada) voltarBrasil();
+      else aplicarVista();
+    }
+
+    function trocarAba(id) {
+      aba = id;
+      document.querySelectorAll(".tab").forEach((el) => {
+        el.classList.toggle("active", el.dataset.tab === id);
+      });
+      montarUfsBySigla();
+      renderBrasil();
+      renderComparativo();
+      aplicarVista();
+    }
+
+    async function init() {
+      map = L.map("map", { worldCopyJump: true, minZoom: 2 }).setView([-14.5, -52], 4);
+      map.createPane("munPane");
+      map.getPane("munPane").style.zIndex = 450;
+      // Carto passou a exigir API key — usa Esri Dark Gray (sem chave) p/ ver o mundo atrás do Brasil
+      L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        {
+          attribution: "Tiles &copy; Esri — Source: Esri, HERE, Garmin, FAO, NOAA",
+          maxZoom: 16,
+        }
+      ).addTo(map);
+      L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+        {
+          attribution: "",
+          maxZoom: 16,
+          opacity: 0.9,
+        }
+      ).addTo(map);
+
+      const geo = await fetch(GEO_UF).then((r) => r.json());
+      ufLayer = L.geoJSON(geo, { style: estiloUf, onEachFeature: bindUf }).addTo(map);
+      map.fitBounds(ufLayer.getBounds(), { padding: [16, 16] });
+      setTimeout(() => map.invalidateSize(), 80);
+
+      document.getElementById("btn-brasil").onclick = voltarBrasil;
+      document.getElementById("btn-view-uf").onclick = () => trocarVista("uf");
+      document.getElementById("btn-view-mun").onclick = () => trocarVista("mun");
+      map.on("click", onMapClick);
+      document.querySelectorAll(".tab").forEach((btn) => {
+        btn.onclick = () => trocarAba(btn.dataset.tab);
+      });
+
+      const erroEl = document.getElementById("erro");
+      try {
+        const resp = await fetch("/api/dashboard");
+        if (!resp.ok) throw new Error(await resp.text());
+        dash = await resp.json();
+        document.getElementById("status").textContent =
+          `Banco · 1T eleição ${dash.eleicao_1t} (${dash.turno_1?.ufs?.length || 0} UFs) · ` +
+          `2T eleição ${dash.eleicao_2t} (${dash.turno_2?.ufs?.length || 0} UFs) · 1 leitura`;
+        trocarAba("t2");
+        await aplicarVista();
+      } catch (e) {
+        erroEl.textContent = "Erro: " + e.message;
+      }
+    }
+
+    init().catch((e) => {
+      document.getElementById("erro").textContent = "Erro no mapa: " + e.message;
+    });
+  </script>
+</body>
+</html>

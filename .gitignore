@@ -1,0 +1,29 @@
+# Ambiente virtual Python (nunca sobe pro Git)
+.venv/
+venv/
+
+# Cache / bytecode do Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Variáveis de ambiente (segredos)
+.env
+.env.*
+!.env.example
+
+# Dados baixados no notebook (podem ser regenerados)
+data/raw/
+
+# Banco SQLite local do poller
+data/*.db
+data/*.db-*
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,25 @@
+name: Poller Periódico TSE
+
+on:
+  schedule:
+    # Executa a cada 10 minutos (ajuste conforme necessário)
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Permite disparar manualmente pelo GitHub Actions
+
+jobs:
+  poll-tse:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Acionar /api/poll na Vercel
+        env:
+          APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "Aviso: Secret VERCEL_APP_URL não configurada no repositório."
+            exit 0
+          fi
+          echo "Disparando poll na Vercel: $APP_URL/api/poll"
+          curl -f -s -X POST "$APP_URL/api/poll" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" || echo "Poll executado com resposta registrada."
