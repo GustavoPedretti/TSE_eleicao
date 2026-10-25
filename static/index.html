@@ -663,7 +663,11 @@
         }
       ).addTo(map);
 
-      const geo = await fetch(GEO_UF).then((r) => r.json());
+      let geoResp = await fetch(GEO_UF);
+      if (!geoResp.ok || geoResp.headers.get("content-type")?.includes("html")) {
+        geoResp = await fetch("/api/geo/br-ufs.geojson");
+      }
+      const geo = await geoResp.json();
       ufLayer = L.geoJSON(geo, { style: estiloUf, onEachFeature: bindUf }).addTo(map);
       map.fitBounds(ufLayer.getBounds(), { padding: [16, 16] });
       setTimeout(() => map.invalidateSize(), 80);
@@ -679,7 +683,16 @@
       const erroEl = document.getElementById("erro");
       try {
         const resp = await fetch("/api/dashboard");
-        if (!resp.ok) throw new Error(await resp.text());
+        if (!resp.ok) {
+          const errText = await resp.text();
+          let msg = errText;
+          try {
+            const parsed = JSON.parse(errText);
+            if (parsed && parsed.detail) msg = parsed.detail;
+          } catch {}
+          erroEl.innerHTML = `⚠️ <b>Aviso:</b> ${msg} <br><span style="font-size: 11px; opacity: 0.8;">Execute a primeira carga de apuração acessando <code>/api/poll?secret=...</code></span>`;
+          return;
+        }
         dash = await resp.json();
         document.getElementById("status").textContent =
           `Banco · 1T eleição ${dash.eleicao_1t} (${dash.turno_1?.ufs?.length || 0} UFs) · ` +

@@ -224,6 +224,17 @@ async def api_status():
     }
 
 
+@app.get("/static/geo/br-ufs.geojson")
+@app.get("/api/geo/br-ufs.geojson")
+async def geo_ufs():
+    p = STATIC_DIR / "geo" / "br-ufs.geojson"
+    if not p.exists():
+        p = Path(__file__).resolve().parent.parent / "static" / "geo" / "br-ufs.geojson"
+    if p.exists():
+        return FileResponse(p, media_type="application/json")
+    raise HTTPException(status_code=404, detail="GeoJSON não encontrado")
+
+
 @app.get("/api")
 async def api_info():
     return {
