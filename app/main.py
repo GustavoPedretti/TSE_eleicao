@@ -40,6 +40,7 @@ logging.basicConfig(
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT / "static"
+PUBLIC_DIR = ROOT / "public"
 
 
 def _ufs_payload(eleicao: str) -> list[dict[str, Any]]:
@@ -143,6 +144,8 @@ def _autorizar_poll(authorization: str | None, secret_param: str | None = None) 
 
 @app.post("/api/poll")
 @app.get("/api/poll")
+@app.post("/poll")
+@app.get("/poll")
 async def api_poll(
     authorization: str | None = Header(default=None),
     secret: str | None = Query(default=None),
@@ -153,6 +156,7 @@ async def api_poll(
 
 
 @app.get("/api/dashboard")
+@app.get("/dashboard")
 async def api_dashboard():
     """
     Uma leitura do banco com 1º e 2º turno (BR + UFs).
@@ -175,6 +179,7 @@ async def api_dashboard():
 
 
 @app.get("/api/presidente")
+@app.get("/presidente")
 async def api_presidente(turno: int = Query(2, ge=1, le=2)):
     eleicao = ELEICAO_1T if turno == 1 else ELEICAO_2T
     data = db.ultimo_resumo(eleicao, "br")
@@ -184,6 +189,7 @@ async def api_presidente(turno: int = Query(2, ge=1, le=2)):
 
 
 @app.get("/api/mapa/ufs")
+@app.get("/mapa/ufs")
 async def api_mapa_ufs(turno: int = Query(2, ge=1, le=2)):
     eleicao = ELEICAO_1T if turno == 1 else ELEICAO_2T
     itens = _ufs_payload(eleicao)
@@ -191,6 +197,7 @@ async def api_mapa_ufs(turno: int = Query(2, ge=1, le=2)):
 
 
 @app.get("/api/mapa/municipios-brasil")
+@app.get("/mapa/municipios-brasil")
 async def api_mapa_municipios_brasil(turno: int = Query(2, ge=1, le=2)):
     """Vista nacional por cidade — só lê banco (todas as UFs)."""
     eleicao = ELEICAO_1T if turno == 1 else ELEICAO_2T
@@ -200,6 +207,7 @@ async def api_mapa_municipios_brasil(turno: int = Query(2, ge=1, le=2)):
 
 
 @app.get("/api/mapa/{uf}/municipios")
+@app.get("/mapa/{uf}/municipios")
 async def api_mapa_municipios(uf: str, turno: int = Query(2, ge=1, le=2)):
     uf = uf.lower()
     if uf == "zz":
@@ -211,6 +219,7 @@ async def api_mapa_municipios(uf: str, turno: int = Query(2, ge=1, le=2)):
 
 
 @app.get("/api/status")
+@app.get("/status")
 async def api_status():
     return {
         "eleicao_1t": ELEICAO_1T,
@@ -225,13 +234,16 @@ async def api_status():
 
 
 @app.get("/static/geo/br-ufs.geojson")
+@app.get("/geo/br-ufs.geojson")
 @app.get("/api/geo/br-ufs.geojson")
 async def geo_ufs():
-    p = STATIC_DIR / "geo" / "br-ufs.geojson"
-    if not p.exists():
-        p = Path(__file__).resolve().parent.parent / "static" / "geo" / "br-ufs.geojson"
-    if p.exists():
-        return FileResponse(p, media_type="application/json")
+    for base in [PUBLIC_DIR, STATIC_DIR, ROOT]:
+        p = base / "geo" / "br-ufs.geojson"
+        if p.exists():
+            return FileResponse(p, media_type="application/json")
+        p2 = base / "static" / "geo" / "br-ufs.geojson"
+        if p2.exists():
+            return FileResponse(p2, media_type="application/json")
     raise HTTPException(status_code=404, detail="GeoJSON não encontrado")
 
 
@@ -256,11 +268,15 @@ async def api_info():
 @app.get("/index.html")
 @app.get("/")
 async def home():
-    index = STATIC_DIR / "index.html"
-    if not index.exists():
-        raise HTTPException(status_code=404, detail="static/index.html não encontrado")
-    return FileResponse(index)
+    for base in [PUBLIC_DIR, STATIC_DIR]:
+        index = base / "index.html"
+        if index.exists():
+            return FileResponse(index)
+    raise HTTPException(status_code=404, detail="index.html não encontrado")
 
+
+if PUBLIC_DIR.exists():
+    app.mount("/geo", StaticFiles(directory=PUBLIC_DIR / "geo"), name="geo")
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
