@@ -121,20 +121,33 @@ app = FastAPI(
 )
 
 
-def _autorizar_poll(authorization: str | None) -> None:
+def _autorizar_poll(authorization: str | None, secret_param: str | None = None) -> None:
     if not POLL_SECRET:
         if IS_VERCEL:
-            raise HTTPException(status_code=500, detail="POLL_SECRET não configurado")
+            raise HTTPException(
+                status_code=500,
+                detail="POLL_SECRET não configurado nas Environment Variables da Vercel.",
+            )
         return
     esperado = f"Bearer {POLL_SECRET}"
-    if not authorization or not secrets.compare_digest(authorization, esperado):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    token_ok = (
+        (authorization and secrets.compare_digest(authorization, esperado))
+        or (secret_param and secrets.compare_digest(secret_param, POLL_SECRET))
+    )
+    if not token_ok:
+        raise HTTPException(
+            status_code=401,
+            detail="Não autorizado. Envie o header 'Authorization: Bearer <POLL_SECRET>' ou query '?secret=<POLL_SECRET>'",
+        )
 
 
 @app.post("/api/poll")
 @app.get("/api/poll")
-async def api_poll(authorization: str | None = Header(default=None)):
-    _autorizar_poll(authorization)
+async def api_poll(
+    authorization: str | None = Header(default=None),
+    secret: str | None = Query(default=None),
+):
+    _autorizar_poll(authorization, secret)
     db.init_db()
     return await ciclo_completo()
 
