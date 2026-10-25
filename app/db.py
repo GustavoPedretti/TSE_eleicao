@@ -35,14 +35,56 @@ def _pg_conn():
             if _pg.closed:
                 _pg = None
             else:
-                # Testa se a conexão do pooler continua viva
                 _pg.execute("SELECT 1")
         except Exception:
             _pg = None
 
     if _pg is None:
-        _pg = psycopg.connect(DATABASE_URL, row_factory=dict_row, autocommit=True)
+        url = DATABASE_URL
+        if "sslmode" not in url and ("supabase.com" in url or "pooler" in url):
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}sslmode=require"
+        _pg = psycopg.connect(url, row_factory=dict_row, autocommit=True)
+        # Garante que as tabelas existam na primeira conexão
+        try:
+            _criar_tabelas_pg(_pg)
+        except Exception as e:
+            import logging
+            logging.warning("Aviso ao auto-criar tabelas no Postgres: %s", e)
     return _pg
+
+
+def _criar_tabelas_pg(conn):
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS snapshots (
+            id BIGSERIAL PRIMARY KEY,
+            eleicao TEXT NOT NULL,
+            abrangencia TEXT NOT NULL DEFAULT 'br',
+            turno TEXT,
+            idg TEXT,
+            gerado_em_tse TEXT,
+            secoes_pct TEXT,
+            baixado_em TIMESTAMPTZ NOT NULL,
+            mudou BOOLEAN NOT NULL DEFAULT TRUE,
+            resumo_json JSONB NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_snapshots_eleicao_abr_id
+            ON snapshots (eleicao, abrangencia, id DESC);
+        CREATE TABLE IF NOT EXISTS polls (
+            id BIGSERIAL PRIMARY KEY,
+            eleicao TEXT NOT NULL,
+            abrangencia TEXT NOT NULL DEFAULT 'br',
+            ok BOOLEAN NOT NULL,
+            mudou BOOLEAN NOT NULL DEFAULT FALSE,
+            idg TEXT,
+            erro TEXT,
+            em TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_polls_eleicao_em
+            ON polls (eleicao, em DESC);
+        """
+    )
 
 
 def connect() -> sqlite3.Connection:

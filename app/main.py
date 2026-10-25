@@ -162,12 +162,19 @@ async def api_dashboard():
     Uma leitura do banco com 1º e 2º turno (BR + UFs).
     Front carrega uma vez e monta as duas abas.
     """
-    t1 = _bloco_turno(ELEICAO_1T, "1º turno")
-    t2 = _bloco_turno(ELEICAO_2T, "2º turno")
+    try:
+        t1 = _bloco_turno(ELEICAO_1T, "1º turno")
+        t2 = _bloco_turno(ELEICAO_2T, "2º turno")
+    except Exception as e:
+        logging.exception("Erro ao acessar banco para dashboard: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Erro de conexão com o banco ({e}). Se for o primeiro acesso, dispare a carga inicial via /api/poll?secret=...",
+        )
     if not t2["brasil"] and not t1["brasil"]:
         raise HTTPException(
             status_code=503,
-            detail="Sem dados ainda — aguarde o poller (/api/poll).",
+            detail="Sem dados ainda no banco — execute a primeira carga acessando /api/poll?secret=...",
         )
     return {
         "fonte": "banco",
@@ -221,15 +228,32 @@ async def api_mapa_municipios(uf: str, turno: int = Query(2, ge=1, le=2)):
 @app.get("/api/status")
 @app.get("/status")
 async def api_status():
+    db_conn_ok = False
+    db_msg = "ok"
+    if db._use_postgres():
+        try:
+            db._pg_conn().execute("SELECT 1")
+            db_conn_ok = True
+            db_msg = "conectado ao Supabase (Postgres)"
+        except Exception as e:
+            db_msg = f"erro ao conectar ao Supabase: {e}"
+    else:
+        db_conn_ok = True
+        db_msg = "usando SQLite local"
+
     return {
+        "status": "online",
+        "banco_tipo": "postgres" if db._use_postgres() else "sqlite",
+        "banco_conectado": db_conn_ok,
+        "banco_status": db_msg,
+        "database_url_configurada": bool(db.DATABASE_URL),
+        "database_url_length": len(db.DATABASE_URL),
         "eleicao_1t": ELEICAO_1T,
         "eleicao_2t": ELEICAO_2T,
         "intervalo_segundos": POLL_INTERVAL_SEGUNDOS,
         "is_vercel": IS_VERCEL,
         "local_poller": RUN_LOCAL_POLLER,
         "cache": cache.snapshot_meta(),
-        "banco_2t": db.stats_polls(ELEICAO_2T),
-        "banco_1t": db.stats_polls(ELEICAO_1T),
     }
 
 
